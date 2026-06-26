@@ -366,6 +366,7 @@ function renderApp(){
       <div class="lh">
         <h3>Lançamentos de ${MONTHS[m]}</h3>
         <div class="ledger-actions">
+          <button class="btn btn-ghost" data-action="import-extrato" style="font-size:12.5px;">⬆ Importar extrato</button>
           <button class="btn btn-ghost" data-action="export-csv" style="font-size:12.5px;">⬇ Exportar CSV</button>
           <button class="btn btn-primary" data-action="add-tx" style="font-size:12.5px;">+ Novo lançamento</button>
         </div>
@@ -614,6 +615,125 @@ function resetAllData(){
   renderPresetPicker();
 }
 
+/* ============================== IMPORTAÇÃO DE EXTRATO (CSV / OFX) ============================== */
+let importRows = [];
+
+function parseDateFlexible(str){
+  if (!str) return null;
+  str = str.trim();
+  let m;
+  if ((m = str.match(/^(\d{4})-(\d{2})-(\d{2})/))) return `${m[1]}-${m[2]}-${m[3]}`;
+  if ((m = str.match(/^(\d{2})\/(\d{2})\/(\d{4})/))) return `${m[3]}-${m[2]}-${m[1]}`;
+  if ((m = str.match(/^(\d{2})\/(\d{2})\/(\d{2})$/))) return `20${m[3]}-${m[2]}-${m[1]}`;
+  return null;
+}
+function parseAmountFlexible(str){
+  if (!str) return null;
+  str = str.replace(/r\$/i,'').trim();
+  const neg = /^-/.test(str) || /^\(.*\)$/.test(str);
+  str = str.replace(/[()]/g,'').replace(/^-/,'').replace(/\s/g,'');
+  if (str.includes(',') && str.includes('.')) str = str.replace(/\./g,'').replace(',', '.');
+  else if (str.includes(',')) str = str.replace(',', '.');
+  const n = parseFloat(str);
+  if (isNaN(n)) return null;
+  return neg ? -n : n;
+}
+function splitCSVLine(line, delim){
+  const out = []; let cur = ''; let inQuotes = false;
+  for (let i = 0; i < line.length; i++){
+    const ch = line[i];
+    if (ch === '"') { inQuotes = !inQuotes; continue; }
+    if (ch === delim && !inQuotes) { out.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  out.push(cur);
+  return out.map(s => s.trim());
+}
+function parseCSV(text){
+  const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+  if (!lines.length) return [];
+  const delim = (lines[0].match(/;/g)||[]).length >= (lines[0].match(/,/g)||[]).length ? ';' : ',';
+  const header = splitCSVLine(lines[0], delim).map(h => h.toLowerCase());
+  const idxDate = header.findIndex(h => /data|date/.test(h));
+  const idxDesc = header.findIndex(h => /desc|histor|memo|lan[çc]amento/.test(h));
+  const idxAmt = header.findIndex(h => /valor|amount|montante/.test(h));
+  const hasHeader = idxDate >= 0 && idxAmt >= 0;
+  const startRow = hasHeader ? 1 : 0;
+  const dCol = hasHeader ? idxDate : 0;
+  const descCol = hasHeader ? (idxDesc >= 0 ? idxDesc : 1) : 1;
+  const aCol = hasHeader ? idxAmt : 2;
+  const rows = [];
+  for (let i = startRow; i < lines.length; i++){
+    const cols = splitCSVLine(lines[i], delim);
+    if (cols.length < 2) continue;
+    const date = parseDateFlexible(cols[dCol]);
+    const amount = parseAmountFlexible(cols[aCol]);
+    if (!date || amount === null) continue;
+    rows.push({ date, description: cols[descCol] || '', amount: Math.abs(amount), type: amount >= 0 ? 'income' : 'expense' });
+  }
+  return rows;
+}
+function parseOFX(text){
+  const blocks = text.split(/<STMTTRN>/i).slice(1).map(b => b.split(/<\/STMTTRN>|<STMTTRN>/i)[0]);
+  function field(b, tag){ const m = b.match(new RegExp('<' + tag + '>([^<\r\n]+)', 'i')); return m ? m[1].trim() : ''; }
+  return blocks.map(b => {
+    const dt = field(b, 'DTPOSTED');
+    const amt = field(b, 'TRNAMT');
+    const memo = field(b, 'MEMO') || field(b, 'NAME') || '';
+    const date = dt && dt.length >= 8 ? `${dt.slice(0,4)}-${dt.slice(4,6)}-${dt.slice(6,8)}` : '';
+    const amount = parseFloat(amt.replace(',', '.'));
+    return { date, description: memo, amount: Math.abs(amount), type: amount >= 0 ? 'income' : 'expense' };
+  }).filter(r => r.date && !isNaN(r.amount));
+}
+function triggerImportFile(){
+  document.getElementById('import-file-input').value = '';
+  document.getElementById('import-file-input').click();
+}
+function openImportModal(rows){
+  if (!rows.length) { alert('Não foi possível ler nenhum lançamento desse arquivo.'); return; }
+  importRows = rows.map(r => ({ ...r, include: true, categoryId: '' }));
+  renderImportModal();
+}
+function renderImportModal(){
+  const rowsHtml = importRows.map((r, i) => {
+    const cats = state.categories[r.type];
+    const opts = cats.length
+      ? `<option value="">Escolha...</option>` + cats.map(c => `<option value="${c.id}" ${r.categoryId===c.id?'selected':''}>${escapeHtml(c.name)}</option>`).join('')
+      : `<option value="">Crie categorias em Configurações</option>`;
+    return `<div class="cat-edit-row" style="align-items:center;">
+      <input type="checkbox" data-import-toggle="${i}" ${r.include?'checked':''} style="width:auto;flex:none;">
+      <span class="mono" style="width:64px;font-size:11.5px;flex:none;">${r.date.split('-').reverse().join('/')}</span>
+      <span style="flex:1;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(r.description)}">${escapeHtml(r.description)}</span>
+      <span class="${r.type==='income'?'amt-in':'amt-out'}" style="width:90px;text-align:right;flex:none;">${fmtBRL(r.amount)}</span>
+      <select data-import-cat="${i}" style="width:150px;flex:none;">${opts}</select>
+    </div>`;
+  }).join('');
+  const html = `
+    <h3>Importar extrato</h3>
+    <div class="muted" style="font-size:12.5px;margin-bottom:14px;">Encontramos ${importRows.length} lançamento(s). Escolha a categoria de cada um e desmarque os que não quiser importar.</div>
+    <div style="max-height:50vh;overflow-y:auto;">${rowsHtml}</div>
+    <div class="tx-error" id="import-error"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-action="close-modal">Cancelar</button>
+      <button class="btn btn-primary" data-action="confirm-import">Importar selecionados</button>
+    </div>
+  `;
+  openModal(html, true);
+}
+function confirmImport(){
+  const err = document.getElementById('import-error');
+  const toImport = importRows.filter(r => r.include);
+  if (!toImport.length) { err.textContent = 'Selecione ao menos um lançamento.'; return; }
+  if (toImport.some(r => !r.categoryId)) { err.textContent = 'Escolha uma categoria para todos os lançamentos selecionados.'; return; }
+  toImport.forEach(r => {
+    state.transactions.push({ id: uid(), type: r.type, categoryId: r.categoryId, amount: r.amount, date: r.date, description: r.description });
+  });
+  saveTransactions();
+  importRows = [];
+  closeModal();
+  renderApp();
+}
+
 /* ============================== CSV EXPORT ============================== */
 function exportCSV(){
   const rows = [['Data','Tipo','Categoria','Descrição','Valor']];
@@ -689,6 +809,8 @@ document.addEventListener('click', (e) => {
   else if (a === 'save-goal') saveGoalFromModal();
   else if (a === 'remove-goal') removeGoal(el.dataset.id);
   else if (a === 'export-csv') exportCSV();
+  else if (a === 'import-extrato') triggerImportFile();
+  else if (a === 'confirm-import') confirmImport();
   else if (a === 'apply-preset') applyPreset(el.dataset.preset);
   else if (a === 'add-cat') addCategory(el.dataset.type);
   else if (a === 'delete-cat') deleteCategory(el.dataset.type, el.dataset.id);
@@ -699,6 +821,21 @@ document.addEventListener('click', (e) => {
 document.addEventListener('change', (e) => {
   if (e.target && e.target.id === 'tx-recurring') {
     document.getElementById('tx-recurring-months-wrap').style.display = e.target.checked ? 'block' : 'none';
+  }
+  else if (e.target && e.target.id === 'import-file-input') {
+    const file = e.target.files[0];
+    if (!file) return;
+    file.text().then(text => {
+      const ext = file.name.split('.').pop().toLowerCase();
+      const rows = ext === 'ofx' ? parseOFX(text) : parseCSV(text);
+      openImportModal(rows);
+    });
+  }
+  else if (e.target && e.target.dataset && e.target.dataset.importToggle !== undefined) {
+    importRows[e.target.dataset.importToggle].include = e.target.checked;
+  }
+  else if (e.target && e.target.dataset && e.target.dataset.importCat !== undefined) {
+    importRows[e.target.dataset.importCat].categoryId = e.target.value;
   }
 });
 document.addEventListener('input', (e) => {
