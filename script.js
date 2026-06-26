@@ -1,3 +1,25 @@
+/* ============================== FIREBASE ============================== */
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc, deleteField }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCvvwFJaMGfLs1YOjTW8wfC0o3tHzuAq80",
+  authDomain: "fluxo-app-24597.firebaseapp.com",
+  projectId: "fluxo-app-24597",
+  storageBucket: "fluxo-app-24597.firebasestorage.app",
+  messagingSenderId: "933010184125",
+  appId: "1:933010184125:web:cbc4e67f495cdbb20aa4d4"
+};
+
+const fbApp = initializeApp(firebaseConfig);
+const auth = getAuth(fbApp);
+const db = getFirestore(fbApp);
+let currentUid = null;
+let authMode = 'login';
+
 /* ============================== DATA / STATE ============================== */
 const PALETTE = ["#2BC4A8","#E8B94B","#FF7A59","#5B8DEF","#9B8AFB","#54C7E8","#D9C18B","#7FD9A4","#F2A6C9","#C2C2F0"];
 const MONTHS = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
@@ -51,23 +73,65 @@ function txInMonth(y, m){
 }
 function catById(type, id){ return state.categories[type].find(c => c.id === id); }
 
-/* ============================== STORAGE ADAPTER ============================== */
-/* Dentro do Claude.ai usa window.storage; fora (VSCode, hospedado, etc.) usa localStorage do navegador. */
-const storage = (window.storage) ? window.storage : {
+/* ============================== STORAGE ADAPTER (Firestore) ============================== */
+/* Cada usuário logado tem um único documento em users/{uid} com os campos config, transactions e goals. */
+const storage = {
   async get(key){
-    const v = localStorage.getItem('fluxo:' + key);
-    if (v === null) throw new Error('not found');
-    return { key, value: v };
+    if (!currentUid) throw new Error('not authenticated');
+    const snap = await getDoc(doc(db, 'users', currentUid));
+    const data = snap.exists() ? snap.data() : {};
+    if (!(key in data)) throw new Error('not found');
+    return { key, value: data[key] };
   },
   async set(key, value){
-    localStorage.setItem('fluxo:' + key, value);
+    if (!currentUid) return;
+    await setDoc(doc(db, 'users', currentUid), { [key]: value }, { merge: true });
     return { key, value };
   },
   async delete(key){
-    localStorage.removeItem('fluxo:' + key);
+    if (!currentUid) return;
+    await setDoc(doc(db, 'users', currentUid), { [key]: deleteField() }, { merge: true });
     return { key, deleted: true };
   }
 };
+
+/* ============================== AUTH ============================== */
+function showScreen(name){
+  document.getElementById('screen-login').classList.toggle('hidden', name !== 'login');
+  document.getElementById('screen-app').classList.toggle('hidden', name !== 'app');
+}
+function setAuthMode(mode){
+  authMode = mode;
+  document.querySelectorAll('[data-auth]').forEach(b => b.classList.toggle('active', b.dataset.auth === mode));
+  document.getElementById('btn-auth-submit').textContent = mode === 'login' ? 'Entrar' : 'Criar conta';
+  document.getElementById('auth-error').textContent = '';
+}
+onAuthStateChanged(auth, async (user) => {
+  if (user) {
+    currentUid = user.uid;
+    state = { ready:false, profileName:"Meu Negócio", categories:{income:[],expense:[]}, transactions:[], goals:{}, selYear: now.getFullYear(), selMonth: now.getMonth() };
+    showScreen('app');
+    await loadAll();
+  } else {
+    currentUid = null;
+    showScreen('login');
+  }
+});
+document.getElementById('btn-auth-submit').addEventListener('click', async () => {
+  const email = document.getElementById('auth-email').value.trim();
+  const pass = document.getElementById('auth-password').value;
+  const err = document.getElementById('auth-error');
+  err.textContent = '';
+  try {
+    if (authMode === 'login') await signInWithEmailAndPassword(auth, email, pass);
+    else await createUserWithEmailAndPassword(auth, email, pass);
+  } catch(e) {
+    err.textContent = authMode === 'login'
+      ? 'E-mail ou senha incorretos.'
+      : 'Não foi possível criar a conta. Verifique o e-mail e use uma senha com 6 ou mais caracteres.';
+  }
+});
+document.querySelectorAll('[data-auth]').forEach(b => b.addEventListener('click', () => setAuthMode(b.dataset.auth)));
 
 /* ============================== STORAGE ============================== */
 async function loadAll(){
@@ -258,6 +322,7 @@ function renderApp(){
           <button data-action="next-month" aria-label="Próximo mês">›</button>
         </div>
         <button class="icon-btn" data-action="open-settings" title="Configurações" style="font-size:17px;">⚙</button>
+        <button class="icon-btn" data-action="logout" title="Sair" style="font-size:15px;">⎋</button>
       </div>
     </header>
 
@@ -629,6 +694,7 @@ document.addEventListener('click', (e) => {
   else if (a === 'delete-cat') deleteCategory(el.dataset.type, el.dataset.id);
   else if (a === 'cycle-color') cycleColor(el.dataset.type, el.dataset.id, el);
   else if (a === 'reset-data') resetAllData();
+  else if (a === 'logout') signOut(auth);
 });
 document.addEventListener('change', (e) => {
   if (e.target && e.target.id === 'tx-recurring') {
@@ -644,5 +710,3 @@ document.addEventListener('input', (e) => {
   }
 });
 
-/* ============================== INIT ============================== */
-loadAll();

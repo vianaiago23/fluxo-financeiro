@@ -15,6 +15,7 @@
   --font-mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
 }
 *{box-sizing:border-box;}
+.hidden{display:none !important;}
 html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:var(--font-display);-webkit-font-smoothing:antialiased;}
 #app{max-width:1100px;margin:0 auto;padding:24px 20px 70px;min-height:100vh;}
 .muted{color:var(--text-muted);}

@@ -8,10 +8,27 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="app">
-  <div class="center-screen"><div class="muted">Carregando seus dados…</div></div>
+
+<div id="screen-login" class="center-screen">
+  <div class="card preset-card">
+    <div class="brand">Flu<span>xo</span></div>
+    <div class="seg-toggle" style="margin-top:18px;">
+      <button data-auth="login" class="active">Entrar</button>
+      <button data-auth="cadastro">Criar conta</button>
+    </div>
+    <div class="field"><label>E-mail</label><input id="auth-email" type="email" autocomplete="email"></div>
+    <div class="field"><label>Senha</label><input id="auth-password" type="password" autocomplete="current-password"></div>
+    <div class="tx-error" id="auth-error"></div>
+    <button class="btn btn-primary btn-block" id="btn-auth-submit">Entrar</button>
+  </div>
 </div>
 
-<script src="script.js"></script>
+<div id="screen-app" class="hidden">
+  <div id="app">
+    <div class="center-screen"><div class="muted">Carregando seus dados…</div></div>
+  </div>
+</div>
+
+<script type="module" src="script.js"></script>
 </body>
 </html>
