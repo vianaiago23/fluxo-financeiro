@@ -177,7 +177,7 @@ function renderPresetPicker(){
   document.getElementById('app').innerHTML = `
     <div class="center-screen">
       <div class="card preset-card">
-        <div class="brand">Flu<span>xo</span></div>
+        <div class="brand"><div class="brand-mark">$</div><div class="brand-text">Flu<span>xo</span></div></div>
         <p class="muted" style="margin-top:10px;font-size:13.5px;line-height:1.6;">
           Antes de começar, me diga qual modelo de entradas se parece mais com o seu negócio.
           Você pode renomear, criar ou remover categorias depois, em Configurações.
@@ -315,7 +315,7 @@ function renderApp(){
 
   document.getElementById('app').innerHTML = `
     <header class="topbar">
-      <div class="brand">Flu<span>xo</span><small>${escapeHtml(state.profileName)}</small></div>
+      <div class="brand"><div class="brand-mark">$</div><div class="brand-text">Flu<span>xo</span><small>${escapeHtml(state.profileName)}</small></div></div>
       <div class="topbar-actions">
         <div class="month-nav">
           <button data-action="prev-month" aria-label="Mês anterior">‹</button>
