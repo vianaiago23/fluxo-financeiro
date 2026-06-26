@@ -2,7 +2,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc, deleteField }
+import { initializeFirestore, persistentLocalCache, doc, getDoc, setDoc, deleteField }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -16,7 +16,10 @@ const firebaseConfig = {
 
 const fbApp = initializeApp(firebaseConfig);
 const auth = getAuth(fbApp);
-const db = getFirestore(fbApp);
+const db = initializeFirestore(fbApp, {
+  experimentalAutoDetectLongPolling: true,
+  localCache: persistentLocalCache()
+});
 let currentUid = null;
 let authMode = 'login';
 
@@ -76,13 +79,6 @@ function catById(type, id){ return state.categories[type].find(c => c.id === id)
 /* ============================== STORAGE ADAPTER (Firestore) ============================== */
 /* Cada usuário logado tem um único documento em users/{uid} com os campos config, transactions e goals. */
 const storage = {
-  async get(key){
-    if (!currentUid) throw new Error('not authenticated');
-    const snap = await getDoc(doc(db, 'users', currentUid));
-    const data = snap.exists() ? snap.data() : {};
-    if (!(key in data)) throw new Error('not found');
-    return { key, value: data[key] };
-  },
   async set(key, value){
     if (!currentUid) return;
     await setDoc(doc(db, 'users', currentUid), { [key]: value }, { merge: true });
@@ -136,9 +132,14 @@ document.querySelectorAll('[data-auth]').forEach(b => b.addEventListener('click'
 /* ============================== STORAGE ============================== */
 async function loadAll(){
   let cfg = null, tx = [], goals = {};
-  try { const r = await storage.get('config'); if (r && r.value) cfg = JSON.parse(r.value); } catch(e) {}
-  try { const r = await storage.get('transactions'); if (r && r.value) tx = JSON.parse(r.value); } catch(e) {}
-  try { const r = await storage.get('goals'); if (r && r.value) goals = JSON.parse(r.value); } catch(e) {}
+  let data = {};
+  try {
+    const snap = await getDoc(doc(db, 'users', currentUid));
+    if (snap.exists()) data = snap.data();
+  } catch(e) { console.error('Erro ao carregar dados', e); }
+  try { if (data.config) cfg = JSON.parse(data.config); } catch(e) {}
+  try { if (data.transactions) tx = JSON.parse(data.transactions); } catch(e) {}
+  try { if (data.goals) goals = JSON.parse(data.goals); } catch(e) {}
   state.transactions = Array.isArray(tx) ? tx : [];
   state.goals = goals || {};
   if (cfg && cfg.categories && (cfg.categories.income.length || cfg.categories.expense.length)) {
