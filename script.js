@@ -1,6 +1,6 @@
 /* ============================== FIREBASE ============================== */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged }
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { initializeFirestore, persistentLocalCache, doc, getDoc, setDoc, deleteField }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
@@ -100,7 +100,26 @@ function setAuthMode(mode){
   authMode = mode;
   document.querySelectorAll('[data-auth]').forEach(b => b.classList.toggle('active', b.dataset.auth === mode));
   document.getElementById('btn-auth-submit').textContent = mode === 'login' ? 'Entrar' : 'Criar conta';
-  document.getElementById('auth-error').textContent = '';
+  const err = document.getElementById('auth-error');
+  err.textContent = '';
+  err.style.color = 'var(--danger)';
+}
+async function sendPasswordReset(){
+  const email = document.getElementById('auth-email').value.trim();
+  const err = document.getElementById('auth-error');
+  if (!email) {
+    err.style.color = 'var(--danger)';
+    err.textContent = 'Digite seu e-mail no campo acima para enviarmos o link de redefinição.';
+    return;
+  }
+  try {
+    await sendPasswordResetEmail(auth, email);
+    err.style.color = 'var(--income)';
+    err.textContent = 'Enviamos um e-mail com o link para redefinir sua senha. Confira sua caixa de entrada (e o spam).';
+  } catch(e) {
+    err.style.color = 'var(--danger)';
+    err.textContent = 'Não foi possível enviar. Verifique se o e-mail está digitado corretamente.';
+  }
 }
 onAuthStateChanged(auth, async (user) => {
   if (user) {
@@ -110,6 +129,8 @@ onAuthStateChanged(auth, async (user) => {
     await loadAll();
   } else {
     currentUid = null;
+    document.getElementById('auth-password').value = '';
+    setAuthMode('login');
     showScreen('login');
   }
 });
@@ -118,6 +139,7 @@ document.getElementById('btn-auth-submit').addEventListener('click', async () =>
   const pass = document.getElementById('auth-password').value;
   const err = document.getElementById('auth-error');
   err.textContent = '';
+  err.style.color = 'var(--danger)';
   try {
     if (authMode === 'login') await signInWithEmailAndPassword(auth, email, pass);
     else await createUserWithEmailAndPassword(auth, email, pass);
@@ -563,6 +585,11 @@ function openSettingsModal(){
       <button class="btn btn-danger" data-action="reset-data">Apagar todos os dados</button>
     </div>
 
+    <div class="divider"></div>
+    <div class="section-title">Conta</div>
+    <div class="muted" style="font-size:12.5px;margin-bottom:10px;">Conectado como <b style="color:var(--text);">${escapeHtml(auth.currentUser ? auth.currentUser.email : '')}</b></div>
+    <button class="btn" data-action="logout">Sair da conta / trocar de conta</button>
+
     <div class="modal-actions"><button class="btn btn-primary" data-action="close-modal">Concluído</button></div>
   `;
   openModal(html, true);
@@ -817,7 +844,8 @@ document.addEventListener('click', (e) => {
   else if (a === 'delete-cat') deleteCategory(el.dataset.type, el.dataset.id);
   else if (a === 'cycle-color') cycleColor(el.dataset.type, el.dataset.id, el);
   else if (a === 'reset-data') resetAllData();
-  else if (a === 'logout') signOut(auth);
+  else if (a === 'logout') { closeModal(); signOut(auth); }
+  else if (a === 'forgot-password') sendPasswordReset();
 });
 document.addEventListener('change', (e) => {
   if (e.target && e.target.id === 'tx-recurring') {
