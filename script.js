@@ -466,7 +466,6 @@ function categoryOptions(type){
   return list.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
 }
 function openTxModal(id){
-  txEditingId = id || null;
   const editing = id ? state.transactions.find(t => t.id === id) : null;
   txModalType = editing ? editing.type : 'income';
 
@@ -491,6 +490,7 @@ function openTxModal(id){
     </div>
   `;
   openModal(html);
+  txEditingId = id || null;
   if (editing) document.getElementById('tx-category').value = editing.categoryId;
 }
 function saveTxFromModal(){
