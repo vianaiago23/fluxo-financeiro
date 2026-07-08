@@ -397,7 +397,7 @@ function renderApp(){
         <h3>Lançamentos de ${MONTHS[m]}</h3>
         <div class="ledger-actions">
           <button class="btn btn-ghost" data-action="import-extrato" style="font-size:12.5px;">⬆ Importar extrato</button>
-          <button class="btn btn-ghost" data-action="export-csv" style="font-size:12.5px;">⬇ Exportar CSV</button>
+          <button class="btn btn-ghost" data-action="export-pdf" style="font-size:12.5px;">⬇ Exportar PDF</button>
           <button class="btn btn-primary" data-action="add-tx" style="font-size:12.5px;">+ Novo lançamento</button>
         </div>
       </div>
@@ -589,7 +589,7 @@ function openSettingsModal(){
     <div class="divider"></div>
     <div class="section-title">Dados</div>
     <div class="danger-zone">
-      <button class="btn" data-action="export-csv">⬇ Exportar tudo em CSV</button>
+      <button class="btn" data-action="export-pdf">⬇ Exportar relatório em PDF</button>
       <button class="btn btn-danger" data-action="reset-data">Apagar todos os dados</button>
     </div>
 
@@ -770,29 +770,130 @@ function confirmImport(){
   renderApp();
 }
 
-/* ============================== CSV EXPORT ============================== */
-function exportCSV(){
-  const rows = [['Data','Tipo','Categoria','Descrição','Valor']];
+/* ============================== PDF EXPORT ============================== */
+const PDF_TEAL = [43, 196, 168];
+const PDF_TEAL_DARK = [16, 122, 103];
+const PDF_RED = [206, 74, 47];
+const PDF_INK = [20, 35, 40];
+const PDF_GRAY = [120, 134, 134];
+
+function exportPDF(){
+  if (!state.transactions.length) { alert('Nenhum lançamento para exportar ainda.'); return; }
+  if (!window.jspdf || !window.jspdf.jsPDF) { alert('Não foi possível carregar o gerador de PDF. Verifique sua conexão e recarregue a página.'); return; }
+  const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
+  const pageW = pdf.internal.pageSize.getWidth();
+
+  const groups = {};
   state.transactions.slice().sort((a,b) => a.date.localeCompare(b.date)).forEach(t => {
-    const c = catById(t.type, t.categoryId);
-    rows.push([
-      t.date.split('-').reverse().join('/'),
-      t.type === 'income' ? 'Entrada' : 'Despesa',
-      c ? c.name : '—',
-      t.description || '',
-      t.amount.toFixed(2).replace('.', ',')
-    ]);
+    const key = t.date.slice(0,7);
+    (groups[key] = groups[key] || []).push(t);
   });
-  const csv = rows.map(r => r.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(';')).join('\r\n');
-  const blob = new Blob(["﻿" + csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'fluxo-financeiro.csv';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  const monthKeys = Object.keys(groups).sort();
+  const totIn = state.transactions.filter(t => t.type==='income').reduce((s,t) => s + t.amount, 0);
+  const totOut = state.transactions.filter(t => t.type==='expense').reduce((s,t) => s + t.amount, 0);
+  const saldo = totIn - totOut;
+
+  pdf.setFillColor(14,26,31);
+  pdf.rect(0, 0, pageW, 32, 'F');
+  pdf.setFillColor(...PDF_TEAL);
+  pdf.roundedRect(14, 9, 14, 14, 3, 3, 'F');
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(14);
+  pdf.setTextColor(6,32,26);
+  pdf.text('$', 21, 18.6, { align: 'center' });
+  pdf.setFontSize(18);
+  pdf.setTextColor(237,243,242);
+  pdf.text('Flu', 32, 16.5);
+  pdf.setTextColor(...PDF_TEAL);
+  pdf.text('xo', 32 + pdf.getTextWidth('Flu'), 16.5);
+  pdf.setFont('helvetica','normal');
+  pdf.setFontSize(9);
+  pdf.setTextColor(143,163,163);
+  pdf.text('Relatório financeiro — ' + state.profileName, 32, 23);
+  pdf.text('Gerado em ' + todayStr().split('-').reverse().join('/'), pageW - 14, 23, { align: 'right' });
+
+  const boxW = (pageW - 28 - 10) / 3;
+  const boxes = [
+    { label: 'TOTAL DE ENTRADAS', value: fmtBRL(totIn), color: PDF_TEAL_DARK },
+    { label: 'TOTAL DE SAÍDAS', value: fmtBRL(totOut), color: PDF_RED },
+    { label: 'SALDO GERAL', value: fmtBRL(saldo), color: saldo >= 0 ? PDF_TEAL_DARK : PDF_RED }
+  ];
+  boxes.forEach((b, i) => {
+    const x = 14 + i * (boxW + 5);
+    pdf.setFillColor(243,246,246);
+    pdf.roundedRect(x, 40, boxW, 22, 2, 2, 'F');
+    pdf.setFontSize(7.5);
+    pdf.setTextColor(...PDF_GRAY);
+    pdf.text(b.label, x + 5, 47);
+    pdf.setFont('helvetica','bold');
+    pdf.setFontSize(12.5);
+    pdf.setTextColor(...b.color);
+    pdf.text(b.value, x + 5, 56);
+    pdf.setFont('helvetica','normal');
+  });
+
+  let y = 74;
+  monthKeys.forEach(key => {
+    const [yy, mm] = key.split('-').map(Number);
+    const list = groups[key];
+    const inc = list.filter(t => t.type==='income').reduce((s,t) => s + t.amount, 0);
+    const exp = list.filter(t => t.type==='expense').reduce((s,t) => s + t.amount, 0);
+
+    if (y > 250) { pdf.addPage(); y = 20; }
+
+    pdf.setFont('helvetica','bold');
+    pdf.setFontSize(12);
+    pdf.setTextColor(...PDF_INK);
+    pdf.text(MONTHS[mm-1] + ' ' + yy, 14, y);
+    pdf.setFont('helvetica','normal');
+    pdf.setFontSize(8.5);
+    pdf.setTextColor(...PDF_GRAY);
+    pdf.text('Entradas ' + fmtBRL(inc) + '   |   Saídas ' + fmtBRL(exp) + '   |   Saldo ' + fmtBRL(inc - exp), pageW - 14, y, { align: 'right' });
+
+    const body = list.map(t => {
+      const c = catById(t.type, t.categoryId);
+      return [
+        t.date.split('-').reverse().join('/'),
+        t.type === 'income' ? 'Entrada' : 'Despesa',
+        c ? c.name : '—',
+        t.description || '',
+        (t.type === 'income' ? '+ ' : '- ') + fmtBRL(t.amount)
+      ];
+    });
+
+    pdf.autoTable({
+      startY: y + 3,
+      head: [['Data','Tipo','Categoria','Descrição','Valor']],
+      body,
+      margin: { left: 14, right: 14, bottom: 20 },
+      styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 2.2, textColor: PDF_INK },
+      headStyles: { fillColor: [27,46,52], textColor: [237,243,242], fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [246,249,249] },
+      columnStyles: {
+        0: { cellWidth: 20 },
+        1: { cellWidth: 20 },
+        2: { cellWidth: 40 },
+        4: { cellWidth: 30, halign: 'right', fontStyle: 'bold' }
+      },
+      didParseCell: (d) => {
+        if (d.section === 'body' && d.column.index === 4) {
+          d.cell.styles.textColor = list[d.row.index].type === 'income' ? PDF_TEAL_DARK : PDF_RED;
+        }
+      }
+    });
+    y = pdf.lastAutoTable.finalY + 12;
+  });
+
+  const pages = pdf.getNumberOfPages();
+  for (let i = 1; i <= pages; i++) {
+    pdf.setPage(i);
+    pdf.setFontSize(8);
+    pdf.setTextColor(...PDF_GRAY);
+    pdf.text('Fluxo — controle financeiro', 14, 290);
+    pdf.text('Página ' + i + ' de ' + pages, pageW - 14, 290, { align: 'right' });
+  }
+
+  pdf.save('fluxo-relatorio.pdf');
 }
 
 /* ============================== MODAL GENERIC ============================== */
@@ -846,7 +947,7 @@ document.addEventListener('click', (e) => {
   else if (a === 'add-goal') openGoalModal();
   else if (a === 'save-goal') saveGoalFromModal();
   else if (a === 'remove-goal') removeGoal(el.dataset.id);
-  else if (a === 'export-csv') exportCSV();
+  else if (a === 'export-pdf') exportPDF();
   else if (a === 'import-extrato') triggerImportFile();
   else if (a === 'confirm-import') confirmImport();
   else if (a === 'apply-preset') applyPreset(el.dataset.preset);
