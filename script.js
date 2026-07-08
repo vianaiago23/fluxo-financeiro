@@ -46,6 +46,8 @@ let state = {
 };
 let charts = { expense:null, income:null, trend:null };
 let txModalType = 'income';
+let ledgerExpanded = false;
+const LEDGER_PREVIEW = 5;
 let txEditingId = null;
 let saveTimer = null;
 
@@ -318,7 +320,8 @@ function renderApp(){
   }).join('') : `<div class="empty" style="padding:14px 0;">Defina um limite mensal para alguma categoria de despesa e acompanhe aqui.</div>`;
 
   const sortedTx = cur.monthTx.slice().sort((a,b) => b.date.localeCompare(a.date));
-  const ledgerHtml = sortedTx.length ? sortedTx.map(t => {
+  const visibleTx = ledgerExpanded ? sortedTx : sortedTx.slice(0, LEDGER_PREVIEW);
+  const ledgerHtml = sortedTx.length ? visibleTx.map(t => {
     const c = catById(t.type, t.categoryId);
     const [yy,mm,dd] = t.date.split('-');
     return `<div class="ledger-row">
@@ -334,6 +337,10 @@ function renderApp(){
       </div>
     </div>`;
   }).join('') : `<div class="empty">Nenhum lançamento em ${MONTHS[m]} ainda.<br><br><button class="btn btn-primary" data-action="add-tx">+ Adicionar o primeiro</button></div>`;
+
+  const ledgerToggleHtml = sortedTx.length > LEDGER_PREVIEW
+    ? `<div style="text-align:center;margin-top:14px;"><button class="btn btn-ghost" data-action="toggle-ledger" style="font-size:12.5px;">${ledgerExpanded ? 'Ver menos' : `Ver tudo (${sortedTx.length})`}</button></div>`
+    : '';
 
   document.getElementById('app').innerHTML = `
     <header class="topbar">
@@ -395,6 +402,7 @@ function renderApp(){
         </div>
       </div>
       ${ledgerHtml}
+      ${ledgerToggleHtml}
     </div>
 
     <div class="footnote">Seus dados são salvos automaticamente, de forma privada para você.</div>
@@ -811,6 +819,7 @@ function changeMonth(delta){
   if (m < 0) { m = 11; y--; }
   if (m > 11) { m = 0; y++; }
   state.selMonth = m; state.selYear = y;
+  ledgerExpanded = false;
   renderApp();
 }
 
@@ -822,6 +831,7 @@ document.addEventListener('click', (e) => {
   if (a === 'choose-preset') choosePreset(el.dataset.preset);
   else if (a === 'prev-month') changeMonth(-1);
   else if (a === 'next-month') changeMonth(1);
+  else if (a === 'toggle-ledger') { ledgerExpanded = !ledgerExpanded; renderApp(); }
   else if (a === 'open-settings') openSettingsModal();
   else if (a === 'close-modal') closeModal();
   else if (a === 'add-tx') openTxModal(null);
